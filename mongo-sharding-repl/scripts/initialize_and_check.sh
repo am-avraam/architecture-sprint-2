@@ -54,6 +54,19 @@ EOF
 
 sleep 10  # Пауза для завершения инициализации второго шарда
 
+echo "Инициализация набора реплик rs0..."
+docker compose exec -T shard1 mongosh --port 27018 --quiet <<EOF
+rs.initiate({
+  _id: "rs0",
+  members: [
+    { _id: 0, host: "shard1:27018" },
+    { _id: 1, host: "shard2:27019" }
+  ]
+});
+EOF
+
+sleep 5  # Пауза для завершения инициализации набора реплик
+
 # Ожидание запуска роутера
 echo "Проверка статуса роутера..."
 while ! docker compose exec -T mongos_router mongosh --port 27020 --quiet <<EOF
