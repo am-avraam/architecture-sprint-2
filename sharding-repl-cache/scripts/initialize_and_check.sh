@@ -12,7 +12,7 @@ docker compose up -d
 
 # Ожидание старта всех контейнеров
 echo "Ожидание запуска контейнеров..."
-sleep 15  # Увеличим время ожидания, чтобы контейнеры успели подняться
+sleep 15
 
 # Инициализация конфигурационного сервера
 echo "Инициализация конфигурационного сервера..."
@@ -28,44 +28,35 @@ EOF
 
 sleep 5  # Пауза для завершения инициализации конфигурационного сервера
 
-# Инициализация первого шарда
-echo "Инициализация первого шарда..."
-docker compose exec -T shard1 mongosh --port 27018 --quiet <<EOF
-rs.initiate({
-  _id: "shard1",
-  members: [
-    { _id: 0, host: "shard1:27018" }
-  ]
-});
-EOF
-
-sleep 5  # Пауза для завершения инициализации первого шарда
-
-# Инициализация второго шарда
-echo "Инициализация второго шарда..."
-docker compose exec -T shard2 mongosh --port 27019 --quiet <<EOF
-rs.initiate({
-  _id: "shard2",
-  members: [
-    { _id: 1, host: "shard2:27019" }
-  ]
-});
-EOF
-
-sleep 5  # Пауза для завершения инициализации второго шарда
-
-echo "Инициализация набора реплик rs0..."
+# Инициализация первого репликасета rs0
+echo "Инициализация первого репликасета rs0..."
 docker compose exec -T shard1 mongosh --port 27018 --quiet <<EOF
 rs.initiate({
   _id: "rs0",
   members: [
     { _id: 0, host: "shard1:27018" },
-    { _id: 1, host: "shard2:27019" }
+    { _id: 1, host: "shard2:27019" },
+    { _id: 2, host: "shard3:27021" }
   ]
 });
 EOF
 
-sleep 5  # Пауза для завершения инициализации набора реплик
+sleep 5  # Пауза для завершения инициализации rs0
+
+# Инициализация второго репликасета rs1
+echo "Инициализация второго репликасета rs1..."
+docker compose exec -T shard4 mongosh --port 27022 --quiet <<EOF
+rs.initiate({
+  _id: "rs1",
+  members: [
+    { _id: 0, host: "shard4:27022" },
+    { _id: 1, host: "shard5:27023" },
+    { _id: 2, host: "shard6:27024" }
+  ]
+});
+EOF
+
+sleep 5  # Пауза для завершения инициализации rs1
 
 # Ожидание запуска роутера
 echo "Проверка статуса роутера..."
@@ -80,8 +71,8 @@ done
 # Инициализация роутера и добавление шардов
 echo "Инициализация роутера и настройка шардирования..."
 docker compose exec -T mongos_router mongosh --port 27020 --quiet <<EOF
-sh.addShard("shard1/shard1:27018");
-sh.addShard("shard2/shard2:27019");
+sh.addShard("rs0/shard1:27018,shard2:27019,shard3:27021");
+sh.addShard("rs1/shard4:27022,shard5:27023,shard6:27024");
 
 sh.enableSharding("somedb");
 sh.shardCollection("somedb.helloDoc", { "name" : "hashed" });
@@ -91,24 +82,4 @@ use somedb;
 for (var i = 0; i < 1000; i++) db.helloDoc.insert({ age: i, name: "ly" + i });
 EOF
 
-# Проверка количества документов на первом шарде
-echo "Проверка количества документов на первом шарде..."
-count_shard1=$(docker compose exec -T shard1 mongosh --port 27018 --quiet <<EOF
-use somedb;
-db.helloDoc.countDocuments();
-EOF
-)
-
-echo -e "${YELLOW}Количество документов на первом шарде: ${GREEN}$count_shard1${NC}"
-
-# Проверка количества документов на втором шарде
-echo "Проверка количества документов на втором шарде..."
-count_shard2=$(docker compose exec -T shard2 mongosh --port 27019 --quiet <<EOF
-use somedb;
-db.helloDoc.countDocuments();
-EOF
-)
-
-echo -e "${YELLOW}Количество документов на втором шарде: ${GREEN}$count_shard2${NC}"
-
-echo -e "${GREEN}Инициализация завершена и проверка выполнена.${NC}"
+echo -e "${GREEN}Инициализация завершена.${NC}"
